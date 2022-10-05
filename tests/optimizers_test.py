@@ -329,18 +329,6 @@ class OptimizersTest(parameterized.TestCase):
         self.assertLess(obj, optimal_obj)
         self.assertLess(jnp.linalg.norm(gradient), 1e-4)
 
-        _, _, obj, gradient, _ = optimizers.scipy_minimize(
-            functools.partial(cost, params=params),
-            dynamics,
-            x0,
-            U,
-            method='Newton-CG',
-            options={
-                'xtol': 1e-10,
-                'maxiter': 1000
-            })
-        self.assertLess(obj, optimal_obj)
-        self.assertLess(jnp.linalg.norm(gradient), 1e-4)
 
     def testCustomVJP(self):
         horizon = 5
@@ -411,27 +399,6 @@ class OptimizersTest(parameterized.TestCase):
             functools.partial(cost, true_params), dynamics, x0, U0)
         assert jnp.abs(angle_wrap(X[-1, 0] - jnp.pi)) <= 0.1
         assert jnp.abs(X[-1, 1]) <= 0.1
-
-    def testCEMUpdateMeanStdev(self):
-        num_samples, horizon, dim_control = 400, 20, 1
-        old_mean, old_stdev = jnp.zeros((horizon, dim_control)), jnp.ones(
-            (horizon, dim_control))
-        sampled_controls = jnp.concatenate(
-            (jnp.zeros((num_samples // 2, horizon, dim_control)),
-             jnp.ones((num_samples // 2, horizon, dim_control))),
-            axis=0)
-        # Construct costs such that control 1 has cost 0, and control 0 has cost 1
-        costs = jnp.hstack((jnp.ones(num_samples // 2), jnp.zeros(num_samples // 2)))
-        hyperparams = frozendict({
-            'num_samples': num_samples,
-            'elite_portion': 0.1,
-            'evolution_smoothing': 0.
-        })
-        updated_mean, updated_stdev = optimizers.cem_update_mean_stdev(
-            old_mean, old_stdev, sampled_controls, costs, hyperparams)
-        self.assertEqual(updated_mean.all(), jnp.ones((horizon, dim_control)).all())
-        self.assertEqual(updated_stdev.all(),
-                         jnp.zeros((horizon, dim_control)).all())
 
     def testConstrainedAcrobotSolve(self):
         T = 50
