@@ -20,7 +20,6 @@ import os
 
 from absl.testing import absltest
 from absl.testing import parameterized
-from frozendict import frozendict
 import jax
 from jax import device_put
 from jax import vmap
