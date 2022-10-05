@@ -1,2 +1,4 @@
 numpy>=1.18.4
 pytest-xdist
+six
+frozendict
