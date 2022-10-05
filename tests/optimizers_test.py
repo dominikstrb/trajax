@@ -15,10 +15,6 @@
 # pylint: disable=invalid-name
 """Tests for trajax.optimizers."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import functools
 import os
 
@@ -31,7 +27,6 @@ from jax import vmap
 from jax.config import config
 import jax.numpy as np
 import numpy as onp
-from six.moves import range
 from trajax import optimizers
 from trajax.integrators import euler
 from trajax.integrators import rk4
