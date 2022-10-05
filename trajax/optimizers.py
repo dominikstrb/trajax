@@ -43,10 +43,6 @@ The problem is to minimize over a sequence u[0], u[1]...u[T-1],
       x[0] = x0 is given.
 """
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 from functools import partial  # pylint: disable=g-importing-member
 
 import jax
@@ -58,13 +54,13 @@ from jax import jit
 from jax import lax
 from jax import random
 from jax import vmap
-import jax.numpy as np
+import jax.numpy as jnp
 import scipy.optimize as osp_optimize
 from trajax.tvlqr import rollout as tvlqr_rollout
 from trajax.tvlqr import tvlqr
 
 # Convenience routine to pad zeros for vectorization purposes.
-pad = lambda A: np.vstack((A, np.zeros((1,) + A.shape[1:])))
+pad = lambda A: jnp.vstack((A, jnp.zeros((1,) + A.shape[1:])))
 
 
 def vectorize(fun, argnums=3):
@@ -181,8 +177,8 @@ def _rollout(dynamics, U, x0, *args):
     x_next = dynamics(x, u, t, *args)
     return x_next, x_next
 
-  return np.vstack(
-      (x0, lax.scan(dynamics_for_scan, x0, (U, np.arange(U.shape[0])))[1]))
+  return jnp.vstack(
+      (x0, lax.scan(dynamics_for_scan, x0, (U, jnp.arange(U.shape[0])))[1]))
 
 
 def evaluate(cost, X, U, *args):
@@ -197,7 +193,7 @@ def evaluate(cost, X, U, *args):
   Returns:
     objectives: (T, ) array of objectives.
   """
-  timesteps = np.arange(X.shape[0])
+  timesteps = jnp.arange(X.shape[0])
   return vectorize(cost)(X, U, timesteps, *args)
 
 
@@ -223,7 +219,7 @@ def objective(cost, dynamics, U, x0):
 
 @partial(jax.custom_vjp, nondiff_argnums=(0, 1))
 def _objective(cost, dynamics, U, x0, cost_args, dynamics_args):
-  return np.sum(
+  return jnp.sum(
       evaluate(cost, _rollout(dynamics, U, x0, *dynamics_args), pad(U),
                *cost_args))
 
@@ -261,16 +257,16 @@ def adjoint(A, B, q, r):
   n = q.shape[1]
   T = q.shape[0] - 1
   m = r.shape[1]
-  P = np.zeros((T, n))
-  g = np.zeros((T, m))
+  P = jnp.zeros((T, n))
+  g = jnp.zeros((T, m))
 
   def body(p, t):  # backward recursion of Adjoint equations.
-    g = r[t] + np.matmul(B[t].T, p)
-    p = np.matmul(A[t].T, p) + q[t]
+    g = r[t] + jnp.matmul(B[t].T, p)
+    p = jnp.matmul(A[t].T, p) + q[t]
     return p, (p, g)
 
-  p, (P, g) = lax.scan(body, q[T], np.arange(T - 1, -1, -1))
-  return np.flipud(g), np.vstack((np.flipud(P[:T - 1]), q[T])), p
+  p, (P, g) = lax.scan(body, q[T], jnp.arange(T - 1, -1, -1))
+  return jnp.flipud(g), jnp.vstack((jnp.flipud(P[:T - 1]), q[T])), p
 
 
 def grad_wrt_controls(cost, dynamics, U, x0, cost_args, dynamics_args):
@@ -291,7 +287,7 @@ def grad_wrt_controls(cost, dynamics, U, x0, cost_args, dynamics_args):
   grad_cost = linearize(cost)
 
   X = _rollout(dynamics, U, x0, *dynamics_args)
-  timesteps = np.arange(X.shape[0])
+  timesteps = jnp.arange(X.shape[0])
   A, B = jacobians(X, pad(U), timesteps, *dynamics_args)
   q, r = grad_cost(X, pad(U), timesteps, *cost_args)
   gradient, _, _ = adjoint(A, B, q, r)
@@ -340,13 +336,13 @@ def ddp_rollout(dynamics, X, U, K, k, alpha, *args):
   """
   n = X.shape[1]
   T, m = U.shape
-  Xnew = np.zeros((T + 1, n))
-  Unew = np.zeros((T, m))
+  Xnew = jnp.zeros((T + 1, n))
+  Unew = jnp.zeros((T, m))
   Xnew = Xnew.at[0].set(X[0])
 
   def body(t, inputs):
     Xnew, Unew = inputs
-    del_u = alpha * k[t] + np.matmul(K[t], Xnew[t] - X[t])
+    del_u = alpha * k[t] + jnp.matmul(K[t], Xnew[t] - X[t])
     u = U[t] + del_u
     x = dynamics(Xnew[t], u, t, *args)
     Unew = Unew.at[t].set(u)
@@ -370,9 +366,9 @@ def line_search_ddp(cost,
                     alpha_min=0.00005):
   """Performs line search with respect to DDP rollouts."""
 
-  obj = np.where(np.isnan(obj), np.inf, obj)
+  obj = jnp.where(jnp.isnan(obj), jnp.inf, obj)
   costs = partial(evaluate, cost)
-  total_cost = lambda X, U, *margs: np.sum(costs(X, pad(U), *margs))
+  total_cost = lambda X, U, *margs: jnp.sum(costs(X, pad(U), *margs))
 
   def line_search(inputs):
     """Line search to find improved control sequence."""
@@ -380,16 +376,16 @@ def line_search_ddp(cost,
     Xnew, Unew = ddp_rollout(dynamics, X, U, K, k, alpha, *dynamics_args)
     obj_new = total_cost(Xnew, Unew, *cost_args)
     alpha = 0.5 * alpha
-    obj_new = np.where(np.isnan(obj_new), obj, obj_new)
+    obj_new = jnp.where(jnp.isnan(obj_new), obj, obj_new)
 
     # Only return new trajs if leads to a strict cost decrease
-    X_return = np.where(obj_new < obj, Xnew, X)
-    U_return = np.where(obj_new < obj, Unew, U)
+    X_return = jnp.where(obj_new < obj, Xnew, X)
+    U_return = jnp.where(obj_new < obj, Unew, U)
 
-    return X_return, U_return, np.minimum(obj_new, obj), alpha
+    return X_return, U_return, jnp.minimum(obj_new, obj), alpha
 
   return lax.while_loop(
-      lambda inputs: np.logical_and(inputs[2] >= obj, inputs[3] > alpha_min),
+      lambda inputs: jnp.logical_and(inputs[2] >= obj, inputs[3] > alpha_min),
       line_search, (X, U, obj, alpha_0))
 
 
@@ -404,9 +400,9 @@ def project_psd_cone(Q, delta=0.0):
   Returns:
     [n, n] symmetric matrix projection of the input.
   """
-  S, V = np.linalg.eigh(Q)
-  S = np.maximum(S, delta)
-  Q_plus = np.matmul(V, np.matmul(np.diag(S), V.T))
+  S, V = jnp.linalg.eigh(Q)
+  S = jnp.maximum(S, delta)
+  Q_plus = jnp.matmul(V, jnp.matmul(jnp.diag(S), V.T))
   return 0.5 * (Q_plus + Q_plus.T)
 
 
@@ -470,8 +466,8 @@ def ilqr_base(cost, dynamics, x0, U, cost_args, dynamics_args, maxiter,
   psd = vmap(partial(project_psd_cone, delta=psd_delta))
 
   X = roll(U, x0, *dynamics_args)
-  timesteps = np.arange(X.shape[0])
-  obj = np.sum(evaluator(X, pad(U), *cost_args))
+  timesteps = jnp.arange(X.shape[0])
+  obj = jnp.sum(evaluator(X, pad(U), *cost_args))
 
   def get_lqr_params(X, U):
     Q, R, M = quadratizer(X, pad(U), timesteps, *cost_args)
@@ -480,14 +476,14 @@ def ilqr_base(cost, dynamics, x0, U, cost_args, dynamics_args, maxiter,
     R = lax.cond(make_psd, R, psd, R, lambda x: x)
 
     q, r = cost_gradients(X, pad(U), timesteps, *cost_args)
-    A, B = dynamics_jacobians(X, pad(U), np.arange(T + 1), *dynamics_args)
+    A, B = dynamics_jacobians(X, pad(U), jnp.arange(T + 1), *dynamics_args)
 
     return (Q, q, R, r, M, A, B)
 
-  c = np.zeros((T, n))  # assumes trajectory is always dynamically feasible.
+  c = jnp.zeros((T, n))  # assumes trajectory is always dynamically feasible.
 
-  gradient = np.full((T, m), np.inf)
-  adjoints = np.zeros((T, n))
+  gradient = jnp.full((T, m), jnp.inf)
+  adjoints = jnp.zeros((T, n))
 
   def body(inputs):
     """Solves LQR subproblem and returns updated trajectory."""
@@ -510,12 +506,12 @@ def ilqr_base(cost, dynamics, x0, U, cost_args, dynamics_args, maxiter,
 
   def continuation_criterion(inputs):
     _, _, _, alpha, gradient, _, _, iteration = inputs
-    grad_norm = np.linalg.norm(gradient)
-    grad_norm = np.where(np.isnan(grad_norm), np.inf, grad_norm)
+    grad_norm = jnp.linalg.norm(gradient)
+    grad_norm = jnp.where(jnp.isnan(grad_norm), jnp.inf, grad_norm)
 
-    return np.logical_and(
+    return jnp.logical_and(
         iteration < maxiter,
-        np.logical_and(grad_norm > grad_norm_threshold, alpha > alpha_min))
+        jnp.logical_and(grad_norm > grad_norm_threshold, alpha > alpha_min))
 
   lqr = get_lqr_params(X, U)
   X, U, obj, _, gradient, adjoints, lqr, it = lax.while_loop(
@@ -540,19 +536,19 @@ def _ilqr_bwd(cost, dynamics, fwd_residuals, gX_gU_gNonDifferentiableOutputs):
   gX, gU = gX_gU_gNonDifferentiableOutputs[:2]
 
   _, _, _, _, _, A, B = lqr
-  timesteps = np.arange(X.shape[0])
+  timesteps = jnp.arange(X.shape[0])
 
   quadratizer = quadratize(hamiltonian(cost, dynamics), argnums=4)
   Q, R, M = quadratizer(X, pad(U), timesteps, pad(adjoints), cost_args,
                         dynamics_args)
 
-  c = np.zeros(A.shape[:2])
+  c = jnp.zeros(A.shape[:2])
   K, k, _, _ = tvlqr(Q, gX, R, gU, M, A, B, c)
-  _, dU = tvlqr_rollout(K, k, np.zeros_like(x0), A, B, c)
+  _, dU = tvlqr_rollout(K, k, jnp.zeros_like(x0), A, B, c)
 
   vhp = vhp_params(cost)
   gradients = vhp(pad(dU), X, pad(U), A, B, *cost_args)[1]
-  zeros_like_args = jax.tree_map(np.zeros_like, args)
+  zeros_like_args = jax.tree_map(jnp.zeros_like, args)
   # TODO(schmrlng): Add gradients with respect to `cost_args` other than the
   # first, `x0`, and `dynamics_args`.
   return (zeros_like_args[:2] + ((gradients, *zeros_like_args[2][1:]),) +
@@ -565,8 +561,8 @@ def hamiltonian(cost, dynamics):
   """Returns function to evaluate associated Hamiltonian."""
 
   def fun(x, u, t, p, cost_args=(), dynamics_args=()):
-    return cost(x, u, t, *cost_args) + np.dot(p,
-                                              dynamics(x, u, t, *dynamics_args))
+    return cost(x, u, t, *cost_args) + jnp.dot(p,
+                                               dynamics(x, u, t, *dynamics_args))
 
   return fun
 
@@ -596,9 +592,9 @@ def vhp_params(cost):
     """
     T = X.shape[0] - 1
     params = args[0]
-    gradient = jax.tree_map(np.zeros_like, params)
+    gradient = jax.tree_map(jnp.zeros_like, params)
     Cx = hessian_x_params(X[T], U[T], T, *args)
-    contract = lambda x, y: np.tensordot(x, y, (-1, 0))
+    contract = lambda x, y: jnp.tensordot(x, y, (-1, 0))
 
     def body(tt, inputs):
       """Accumulates vector hessian product over all time steps."""
@@ -606,7 +602,7 @@ def vhp_params(cost):
       t = T - 1 - tt
       Cx = hessian_x_params(X[t], U[t], t, *args)
       Cu = hessian_u_params(X[t], U[t], t, *args)
-      w = np.matmul(B[t], vector[t])
+      w = jnp.matmul(B[t], vector[t])
       g = jax.tree_map(
           lambda P_, g_, Cu_: g_ + contract(vector[t], Cu_) + contract(w, P_),
           P, g, Cu)
@@ -700,10 +696,10 @@ def cem_update_mean_stdev(old_mean, old_stdev, controls, costs, hyperparams):
   """Computes new mean and standard deviation from elite samples."""
   num_samples = hyperparams['num_samples']
   num_elites = int(num_samples * hyperparams['elite_portion'])
-  best_control_idx = np.argsort(costs)[:num_elites]
+  best_control_idx = jnp.argsort(costs)[:num_elites]
   elite_controls = controls[best_control_idx]
-  new_mean = np.mean(elite_controls, axis=0)
-  new_stdev = np.std(elite_controls, axis=0)
+  new_mean = jnp.mean(elite_controls, axis=0)
+  new_stdev = jnp.std(elite_controls, axis=0)
   updated_mean = hyperparams['evolution_smoothing'] * old_mean + (
       1 - hyperparams['evolution_smoothing']) * new_mean
   updated_stdev = hyperparams['evolution_smoothing'] * old_stdev + (
@@ -741,14 +737,14 @@ def gaussian_samples(random_key, mean, stdev, control_low, control_high,
 
   def body_fun(t, noises):
     return noises.at[:, t].set(smoothing_coef * noises[:, t - 1] +
-                               np.sqrt(1 - smoothing_coef**2) * noises[:, t])
+                               jnp.sqrt(1 - smoothing_coef ** 2) * noises[:, t])
 
   noises = jax.lax.fori_loop(1, horizon, body_fun, noises)
   samples = noises * stdev
   samples = samples + mean
   control_low = jax.lax.broadcast(control_low, samples.shape[:-1])
   control_high = jax.lax.broadcast(control_high, samples.shape[:-1])
-  samples = np.clip(samples, control_low, control_high)
+  samples = jnp.clip(samples, control_low, control_high)
   return samples
 
 
@@ -794,8 +790,8 @@ def cem(cost,
     random_key = random.PRNGKey(0)
   if hyperparams is None:
     hyperparams = default_cem_hyperparams()
-  mean = np.array(init_controls)
-  stdev = np.array([(control_high - control_low) / 2.] * init_controls.shape[0])
+  mean = jnp.array(init_controls)
+  stdev = jnp.array([(control_high - control_low) / 2.] * init_controls.shape[0])
   obj_fn = partial(objective, cost, dynamics)
 
   def loop_body(_, args):
@@ -856,13 +852,13 @@ def random_shooting(cost,
     random_key = random.PRNGKey(0)
   if hyperparams is None:
     hyperparams = default_cem_hyperparams()
-  mean = np.array(init_controls)
-  stdev = np.array([(control_high - control_low) / 2.] * init_controls.shape[0])
+  mean = jnp.array(init_controls)
+  stdev = jnp.array([(control_high - control_low) / 2.] * init_controls.shape[0])
   obj_fn = partial(_objective, cost, dynamics)
   controls = gaussian_samples(random_key, mean, stdev, control_low,
                               control_high, hyperparams)
   costs = vmap(obj_fn, in_axes=(0, None))(controls, init_state)
-  best_idx = np.argmin(costs)
+  best_idx = jnp.argmin(costs)
 
   U = controls[best_idx]
   X = rollout(dynamics, mean, init_state)
@@ -879,8 +875,8 @@ def constrained_ilqr(
     dynamics,
     x0,
     U,
-    equality_constraint=lambda x, u, t: np.empty(1),
-    inequality_constraint=lambda x, u, t: np.empty(1),
+    equality_constraint=lambda x, u, t: jnp.empty(1),
+    inequality_constraint=lambda x, u, t: jnp.empty(1),
     maxiter_al=5,
     maxiter_ilqr=100,
     grad_norm_threshold=1.0e-4,
@@ -944,7 +940,7 @@ def constrained_ilqr(
 
   # horizon
   horizon = len(U) + 1
-  t_range = np.arange(horizon)
+  t_range = jnp.arange(horizon)
 
   # rollout
   X = rollout(dynamics, U, x0)
@@ -961,8 +957,8 @@ def constrained_ilqr(
     inequality = inequality_constraint(x, u, t)
 
     # active set
-    active_set = np.invert(
-        np.isclose(dual_inequality[t], 0.0) & (inequality < 0.0))
+    active_set = jnp.invert(
+      jnp.isclose(dual_inequality[t], 0.0) & (inequality < 0.0))
 
     # update cost
     # TODO(taylorhowell): Gauss-Newton approximation for constraints,
@@ -977,7 +973,7 @@ def constrained_ilqr(
     return dual + penalty * constraint
 
   def inequality_projection(dual):
-    return np.maximum(dual, 0.0)
+    return jnp.maximum(dual, 0.0)
 
   # vectorize
   equality_constraint_mapped = vectorize(equality_constraint)
@@ -990,8 +986,8 @@ def constrained_ilqr(
   inequality_constraints = inequality_constraint_mapped(X, U_pad, t_range)
 
   # initialize dual variables
-  dual_equality = np.zeros_like(equality_constraints)
-  dual_inequality = np.zeros_like(inequality_constraints)
+  dual_equality = jnp.zeros_like(equality_constraints)
+  dual_inequality = jnp.zeros_like(inequality_constraints)
 
   # initialize penalty
   penalty = penalty_init
@@ -1029,9 +1025,9 @@ def constrained_ilqr(
     inequality_constraints_projected = inequality_projection(
         inequality_constraints)
 
-    max_constraint_violation = np.maximum(
-        np.max(np.abs(equality_constraints)),
-        np.max(inequality_constraints_projected))
+    max_constraint_violation = jnp.maximum(
+        jnp.max(jnp.abs(equality_constraints)),
+        jnp.max(inequality_constraints_projected))
 
     # augmented Lagrangian update
     dual_equality = dual_update_mapped(equality_constraints, dual_equality,
@@ -1055,16 +1051,16 @@ def constrained_ilqr(
     inequality_constraints = inputs[6]
     max_constraint_violation = inputs[7]
     iteration_al = inputs[11]
-    max_complementary_slack = np.max(
-        np.abs(inequality_constraints * dual_inequality))
+    max_complementary_slack = jnp.max(
+        jnp.abs(inequality_constraints * dual_inequality))
     # check maximum constraint violation and augmented Lagrangian iterations
-    return np.logical_and(iteration_al < maxiter_al,
-                          np.logical_or(
+    return jnp.logical_and(iteration_al < maxiter_al,
+                           jnp.logical_or(
                               max_constraint_violation > constraints_threshold,
                               max_complementary_slack > constraints_threshold))
 
   return lax.while_loop(
       continuation_criteria, body,
       (X, U, dual_equality, dual_inequality, penalty,
-       equality_constraints, inequality_constraints, np.inf, np.inf,
-       np.full(U.shape, np.inf), 0, 0))
+       equality_constraints, inequality_constraints, jnp.inf, jnp.inf,
+       jnp.full(U.shape, jnp.inf), 0, 0))

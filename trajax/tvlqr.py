@@ -34,8 +34,7 @@ from functools import partial  # pylint: disable=g-importing-member
 
 from jax import jit
 from jax import lax
-from jax import ops
-import jax.numpy as np
+import jax.numpy as jnp
 import jax.scipy as sp
 
 
@@ -44,14 +43,14 @@ def rollout(K, k, x0, A, B, c):
   """Rolls-out time-varying linear policy u[t] = K[t] x[t] + k[t]."""
 
   T, m, n = K.shape
-  X = np.zeros((T + 1, n))
-  U = np.zeros((T, m))
+  X = jnp.zeros((T + 1, n))
+  U = jnp.zeros((T, m))
   X = X.at[0].set(x0)
 
   def body(t, inputs):
     X, U = inputs
-    u = np.matmul(K[t], X[t]) + k[t]
-    x = np.matmul(A[t], X[t]) + np.matmul(B[t], u) + c[t]
+    u = jnp.matmul(K[t], X[t]) + k[t]
+    x = jnp.matmul(A[t], X[t]) + jnp.matmul(B[t], u) + c[t]
     X = X.at[t + 1].set(x)
     U = U.at[t].set(u)
     return X, U
@@ -82,26 +81,26 @@ def lqr_step(P, p, Q, q, R, r, M, A, B, c, delta=1e-8):
   """
   symmetrize = lambda x: (x + x.T) / 2
 
-  AtP = np.matmul(A.T, P)
-  AtPA = symmetrize(np.matmul(AtP, A))
-  BtP = np.matmul(B.T, P)
-  BtPA = np.matmul(BtP, A)
+  AtP = jnp.matmul(A.T, P)
+  AtPA = symmetrize(jnp.matmul(AtP, A))
+  BtP = jnp.matmul(B.T, P)
+  BtPA = jnp.matmul(BtP, A)
 
-  G = symmetrize(R + np.matmul(BtP, B))
+  G = symmetrize(R + jnp.matmul(BtP, B))
   # make G positive definite so that smallest eigenvalue > delta.
-  S, _ = np.linalg.eigh(G)
-  G_ = G + np.maximum(0.0, delta - S[0]) * np.eye(G.shape[0])
+  S, _ = jnp.linalg.eigh(G)
+  G_ = G + jnp.maximum(0.0, delta - S[0]) * jnp.eye(G.shape[0])
 
   H = BtPA + M.T
-  h = np.matmul(B.T, p) + np.matmul(BtP, c) + r
+  h = jnp.matmul(B.T, p) + jnp.matmul(BtP, c) + r
 
   K = -sp.linalg.solve(G_, H, assume_a="pos")
   k = -sp.linalg.solve(G_, h, assume_a="pos")
 
-  H_GK = H + np.matmul(G, K)
-  P = symmetrize(Q + AtPA + np.matmul(H_GK.T, K) + np.matmul(K.T, H))
-  p = q + np.matmul(A.T, p) + np.matmul(AtP, c) + np.matmul(
-      H_GK.T, k) + np.matmul(K.T, h)
+  H_GK = H + jnp.matmul(G, K)
+  P = symmetrize(Q + AtPA + jnp.matmul(H_GK.T, K) + jnp.matmul(K.T, H))
+  p = q + jnp.matmul(A.T, p) + jnp.matmul(AtP, c) + jnp.matmul(
+      H_GK.T, k) + jnp.matmul(K.T, h)
 
   return P, p, K, k
 
@@ -134,10 +133,10 @@ def tvlqr(Q, q, R, r, M, A, B, c):
   m = R.shape[1]
   n = Q.shape[1]
 
-  P = np.zeros((T+1, n, n))
-  p = np.zeros((T+1, n))
-  K = np.zeros((T, m, n))
-  k = np.zeros((T, m))
+  P = jnp.zeros((T + 1, n, n))
+  p = jnp.zeros((T + 1, n))
+  K = jnp.zeros((T, m, n))
+  k = jnp.zeros((T, m))
 
   P = P.at[-1].set(Q[T])
   p = p.at[-1].set(q[T])
@@ -192,16 +191,16 @@ def ctvlqr(projector, Q, q, R, r, M, A, B, c, x0, rho=1.0, maxiter=100):
 
   T, m, _ = R.shape
   n = Q.shape[1]
-  X = np.zeros((T+1, n))
-  U = np.zeros((T, m))
-  VX = np.zeros((T+1, n))
-  VU = np.zeros((T, m))
-  ZX = np.zeros((T+1, n))
-  ZU = np.zeros((T, m))
-  K = np.zeros((T, m, n))
-  k = np.zeros((T, m))
-  Im = np.array([np.eye(m)]*T)
-  In = np.array([np.eye(n)]*(T+1))
+  X = jnp.zeros((T + 1, n))
+  U = jnp.zeros((T, m))
+  VX = jnp.zeros((T + 1, n))
+  VU = jnp.zeros((T, m))
+  ZX = jnp.zeros((T + 1, n))
+  ZU = jnp.zeros((T, m))
+  K = jnp.zeros((T, m, n))
+  k = jnp.zeros((T, m))
+  Im = jnp.array([jnp.eye(m)] * T)
+  In = jnp.array([jnp.eye(n)] * (T + 1))
 
   def body(tt, inputs):
     del tt
