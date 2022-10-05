@@ -12,5 +12,5 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from . import integrators
-from . import optimizers
+from trajax import integrators
+from trajax import optimizers
