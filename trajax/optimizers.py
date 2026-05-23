@@ -254,8 +254,6 @@ def adjoint(A, B, q, r):
     n = q.shape[1]
     T = q.shape[0] - 1
     m = r.shape[1]
-    P = jnp.zeros((T, n))
-    g = jnp.zeros((T, m))
 
     def body(p, t):  # backward recursion of Adjoint equations.
         g = r[t] + jnp.matmul(B[t].T, p)
